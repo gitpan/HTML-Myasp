@@ -9,7 +9,7 @@ require 5.005_62;
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use Carp;
 use Data::Dumper;
@@ -87,7 +87,10 @@ sub send_page {
 		if ($source eq 'file') {
 			use IO::File;
 			my $fh = new IO::File;
-			$fh->open("<$file") or die "Couldn't open file $file. System error: $!";
+			unless ($fh->open("<$file")) {
+				print "<p>Archivo no encontrado: $file</p>";
+				return;
+			}
 			local $/ = undef;
 			$CACHE{$file}->{f_text} = <$fh>;
 			close $fh;
@@ -252,36 +255,59 @@ MyModule.pm
  
 =head1 DESCRIPTION
 
-This library is another template module for the generation of HTML pages. Why ?. Well primarily i wanted a module: light, that keeps mod_perl power and flow control like HTML::Template, good interaction with external contents administrators, have the chance of using naturally the print statement for generating web content, but, for some situations have the chance of directly replacing keywords in the template with local hash values.  In some way this module centralices the feature of a hash with values for replacing that you find in  HTML::Template and the XMLSubsMatch feature of Apache::ASP.
+This library is another template module for the generation of HTML pages. Why ?. Well primarily i wanted a module: light, that keeps mod_perl power and flow control like HTML::Template, good interaction with external contents administrators, have the chance of using naturally the print statement for generating web content, but, for some situations have the chance of directly replace keywords in the template with values.  In some way this module centralizes the feature of a hash with values for replacing that you find in  HTML::Template and the XMLSubsMatch feature of Apache::ASP.
 
-This module keeps the basic mod_perl flow, you control the flow, and permits the replacing with dynamic content, using two forms of marking. This modules is very well suited for working in parallell with the designes team, and leave each team advance in parallell. The flow of application keeps entirely in the handler.
+This module keeps the basic mod_perl flow, and permits the replacing with dynamic content using two forms of marking. Is very well suited for working in parallel with the designers team, living each group advance on its own.
 
-We can say that this module dispatch the application in the call to send_page, and uses a callback style for tags replacing, and direct replacing of values capacity.
+HTML::Myasp export the send_page function by default, you can attach the dynamic content using:
 
-The module use a global CACHE hash, this avoids parsing files unless modified.
+=over
+
+=item *
+
+A callback style for special tags delimiting zones.
+
+=item *
+
+Direct replacing of keywords by values.
+
+=back
+
+In order to improve performance it uses a global pages CACHE hash, avoiding parsing files unless modified.
 
 =head1 RECOMMENDED
 
- The recomended way to use this system is:
- Design the page with a graphic tool. 
- When designing consider:
- - Try to keep the maximum of design in the Template
- - Create the page as it will be in production, and surround big zones of dynamic html code with the tag methods. All the HTML in the zone is considered dummy, but can be used if the application wants.
- - Use keywords replacemente where you will provide an atomic value, like user name or date.
+ The recomended way to use this system is Design the page with a graphic tool and when designing consider:
+
+=over
+
+=item *
+
+Try to keep the maximum of design in the Template. Create the page as it will be in production with dummy data when appropriate,
+
+=item *
+
+Delimit with the special tags the zones of HTML you now you're going to produce dynamically. All the HTML in the zone is considered dummy, but can be used if the application wants.
+
+=item *
+
+Use keywords replacement where you will provide an atomic value, like user name or date.
+
+=back
 
 =head1 PARAMETERS
 
-HTML::Myasp receives three parameters: filename, tags_hash, keywords_replace_hash
+The send_page function receives three parameters: filename, tags_hash, keywords_replace_hash
 
 =head2 filename
 
-This is the HTML file that acts as a template for the page that will be produced. The physical file is open and taken relative to the $r->document_root call (the Document Root).
+This is the HTML file that acts as a template for the page that will be produced. The physical file is open and taken relative to the $r->document_root call (the Document Root). When not running under mod_perl the file given as parameter is open as it comes.
 
 =head2 tags_hash
 
 The keys of this hash are the tags we put in the HTML file, the values correspond to a reference to subroutines that, for each key, will generate the content for everything between the initial and ending tag. In our Example:
 
-The TagPrefix Parameter of httpd.conf is xx. If not set, is assumed the value myasp. If the environment variable TagPrefix exists it's value superseed all other settings.
+The TagPrefix Parameter of httpd.conf is xx. If not set, is assumed the value myasp. If the environment variable TagPrefix exists it's value superseded all other settings.
 
 In the HTML file we put the mark:
 
@@ -301,7 +327,7 @@ In the HTML file we put the mark:
  	__date__ => localtime(time),
  });
 
-The first key of the second parameter (the tags_hash) is "-users " and it points to a reference of a soubroutine. 
+The first key of the second parameter (the tags_hash) is "-users " and it points to a reference of a subroutine. 
 
 All this means this:
 
@@ -315,11 +341,11 @@ In the case of tables, is suggested to leave the table declaration in the templa
 
 =head2 keywords_replace_hash
 
-This parameter (optional), contains the keywords that will be replaced with the specified content. Note that no printing is allowed here, the value asigned to the keyword will be put in the resulting page. Each keyword will be replace as many times it appear in the document. 
+This parameter (optional), contains the keywords that will be replaced with the specified content. Note that no printing is allowed here, the value asigned to the keyword will be put in the resulting page. Each keyword will be replace as many times as it appear in the document. 
 
-Notice that no prefixing or sufixing is enforced here, the developer (or designer) can chose the keywords to replace at will.
+No prefixing or sufixing is enforced here, the developer (or designer) can chose the keywords to replace at will.
 
-This form is very well suited for the dynamic content asociated with aotmic values. As shown in the example:
+This form is very well suited for the dynamic content associated with atomic values. As shown in the example:
 
 The HTML file:
 
@@ -339,31 +365,34 @@ Will render an HTML file with the result of calling $sesion->current_user instea
 
 =head1 Global Processing
 
-In the web sites, there are sections that must be present in many pages (if not in all the pages). The system provides two functios that acccess asociative arrays (hashs) that will be allways processed as if they were present in the call to send_page. For example, if you want to allways translate the __user__ mark with the current user and supossing there is some $sesion->current_user method that return this value, you cant at the begining of the request in some hadler call:
+In the web sites, there are sections that must be present in many pages (if not in all the pages). The system provides two functions that access associative arrays (hashs) that will be allways processed as if they were present in the call to send_page. For example, if you want to allways translate the __user__ mark with the current user and supossing there is some $sesion->current_user method that return this value, you cant at the begining of the request in some handler call:
 
 HTML::Myasp::add_replace_entry(_user__ => $sesion->current_user);
 
-and if you have some sections delimited to replace, you can call:
+And if you have some sections delimited to replace, you can call:
 
 HTML::Myasp::add_sub_entry("-section" => sub { my ($attr, $body) = @_; my $s = new OV::Section($attr->{id}); $s->home_page_news });
 
 The last call, is an example where there are multiple section marks in the html file, in this case, an electronic newspaper, for example:
 
-<in:section id=stories><p>This is dummy data not used for now. Here must be the top stories.</p></in:section>
-<in:section id=crime><p>This is dummy data not used for now. Here must be the crime section.</p></in:section>
+<myasp:section id=foo><p>This is dummy data not used for now. Here must be the top foo.</p></myasp:section>
+<myasp:section id=bar><p>This is dummy data not used for now. Here must be the bar section.</p></myasp:section>
 
-The id attribute is used to pass as parameter to  the call to the funcion that will produce the content.
-
+The id attribute is used to pass a parameter to  the call to the funcion that will produce the content.
 
 =head1 Debugging
 
-At this time, there is a Package variable DEBUG that you can set to see aditional information in standard error(traditionally the file error_log in apache).
+At this time, there is a Package variable DEBUG that you can set to see aditional information in standard error (traditionally the file error_log in apache).
+
+$HTML::Myasp::DEBUG=1;
+
+There is only one level of debugging, and shows too much information.
 
 =head1 TODO
 
-It uses a rude regex based parser i expect to polish it with something better in the future.
+Many things. It uses a rude regex based parser i expect to polish it with something better in the future. Do a finer debugging control.
 
-=head2 EXPORT
+=head1 EXPORT
 
 send_page
 
