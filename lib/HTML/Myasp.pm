@@ -9,7 +9,7 @@ require 5.005_62;
 use strict;
 use warnings;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use Carp;
 use Data::Dumper;
@@ -363,6 +363,12 @@ The HTML file:
 
 Will render an HTML file with the result of calling $sesion->current_user instead of the string __user__. __date__ will be replaced with the result of calling localtime(time).
 
+If you allways name the marks with initial and ending double underline __, like in the example, here is the code of a shell script that receives a file as parameter and generate a skeleton keywords hash:
+
+#!/bin/sh
+
+perl -ne 'print "$1\t=>\ttextfield(-name=>\"$2\"),\n" while  /\b(__([\w-]+)__\b)/g' $1
+
 =head1 Global Processing
 
 In the web sites, there are sections that must be present in many pages (if not in all the pages). The system provides two functions that access associative arrays (hashs) that will be allways processed as if they were present in the call to send_page. For example, if you want to allways translate the __user__ mark with the current user and supossing there is some $sesion->current_user method that return this value, you cant at the begining of the request in some handler call:
@@ -403,6 +409,8 @@ Hans Poo, hans@opensource.cl
 =head1 SEE ALSO
 
 perl(1). Apache::ASP (XMLSubsMatch) HTML::Template
+
+
 
 =cut
 
