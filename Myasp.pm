@@ -9,17 +9,46 @@ require 5.005_62;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use Carp;
+use Data::Dumper;
 
 my %CACHE;
+our $DEBUG = 0;
 
+our %g_hparam;
+our %g_hreplace;
+
+#-----------------------------------------------------------------------------------------------
+sub add_sub_entry {
+
+%g_hparam = (%g_hparam, @_);
+
+}
+
+#-----------------------------------------------------------------------------------------------
+# add an entry in the direct replace hash (the second)
+sub add_replace_entry {
+
+%g_hreplace = (%g_hreplace, @_);
+
+}
+
+#-----------------------------------------------------------------------------------------------
 sub send_page {
 
 	local $SIG{__DIE__} = \&Carp::confess;
 
 	my ($file, $hparam, $hreplace) = @_;
+
+	map {$hparam->{$_} = $g_hparam{$_} } keys %g_hparam;
+	map {$hreplace->{$_} = $g_hreplace{$_} } keys %g_hreplace;
+
+	print STDERR "Sub Routine reference hash is\n"	if $DEBUG;
+	warn Dumper $hparam								if $DEBUG;
+	print STDERR "Direct replacing hash\n"			if $DEBUG;
+	warn Dumper $hreplace							if $DEBUG;
 
 	my $tagprefix;
 
@@ -32,13 +61,19 @@ sub send_page {
 		$source = 'file';
 	}
 
+	warn "Source is coming from a $source" if $DEBUG;
+
 	if (exists $ENV{MOD_PERL}) {
 		my $r = Apache->request();
-		$file = $r->document_root() . "/$file";
+		$file = $r->document_root() . "/$file";  # if mod_perl the document root is prefixed to the file path
 		$tagprefix = $r->dir_config("TagPrefix") || 'myasp';
 	} else {
-		$tagprefix = $ENV{TagPrefix} || 'myasp';
+		$tagprefix = 'myasp';
 	}
+
+	$tagprefix = $ENV{TagPrefix} if $ENV{TagPrefix}; # always environment variables can change behavior
+
+	warn "TagPrefix is $tagprefix" if $DEBUG;
 
 	my $mtime = $source eq 'file' ? (stat($file))[9] : time;
 
@@ -46,6 +81,8 @@ sub send_page {
 	my $caller_mtime = (stat($filename))[9];
 
 	if (!$CACHE{$file} || $mtime > $CACHE{$file}->{load_time} || $caller_mtime > $CACHE{$file}->{caller_mtime}) {
+
+		warn "File $file reloaded or loaded first time" if $DEBUG;
 
 		if ($source eq 'file') {
 			use IO::File;
@@ -66,10 +103,17 @@ sub send_page {
 
 		while ($CACHE{$file}->{f_text} =~ m#(.+?)<$tagprefix:(.+?)(\s.+?)?>(.*?)</$tagprefix:\2>#gs) {
 
+			warn "$2 mark found" if $DEBUG;
+
 			my %arr;
 			if ($3) {
 				my $aux = $3;
 				$aux =~ s/^\s+//; $aux =~ s/\s+$//;
+
+#				while (my ($key, $value) = $aux =~ /(\S+)=("[^"]"|\S+)/gs) {
+#					$arr{$key} = $value;
+#				}
+
 				%arr = split /=|\s+/, $aux;
 
 				foreach (keys %arr) {
@@ -82,18 +126,51 @@ sub send_page {
 			$last = $';
 		
 		}
-		push @data, {-html => $last, -type=>'html'};
+		if (@data) {
+			push @data, {-html => $last, -type=>'html'};
+		} else {
+			push @data, {-html =>$CACHE{$file}->{f_text}, -type=>'html'};
+		}
+
 		$CACHE{$file}->{data} = \@data;
+
+	} else {
+		warn "Cache Hit file $file" if $DEBUG;
 	}
+
+
+	# the tags fields in the page are
+
+	print STDERR "Begin parsed data file ***********\n" 	if $DEBUG;
+	warn Dumper $CACHE{$file}								if $DEBUG;
+	print STDERR "End parsed data file ***********\n" 		if $DEBUG;
 
 	foreach my $x (@{$CACHE{$file}->{data}}) {
 		if ($x->{-type} eq 'html') {
+			next unless $x->{-html};
 			my $temp = $x->{-html};
+			print STDERR "Checking HTML replacing keywords\n" if $DEBUG;
+			warn $temp								if $DEBUG;
+
 			foreach my $key (keys %$hreplace) {
-				$temp =~ s/\b${key}\b/$hreplace->{$key}/gis;
+				warn "Checking key \"${key}\" and replacing with \"$hreplace->{$key}\"" if $DEBUG;
+				
+				if ($temp =~ s/\b${key}\b/$hreplace->{$key}/gis) {
+					warn "String $key replaced" if $DEBUG;
+				}
 			}
 			print $temp;
 		} else {
+
+			warn "Calling function $x->{-name}"											if $DEBUG;
+			&Carp::cluck ("Stack de llamadas") 											if $DEBUG;
+			print STDERR "The atributes of the tag are\n"								if $DEBUG;
+			warn Dumper $x->{-param_ref}												if $DEBUG;
+			print STDERR "*** Begin body between the marks is \n$x->{-param_body}\n"	if $DEBUG;
+			print STDERR "*** End body between the marks\n"								if $DEBUG;
+
+
+		
 			&{$hparam->{$x->{-name}}}($x->{-param_ref}, $x->{-param_body});
 		}
 	
@@ -102,6 +179,8 @@ sub send_page {
 	1;
 
 }
+
+
 
 
 1;
@@ -130,16 +209,22 @@ Create a Template myfile.html
  <tr><td>dummy id 2</td><td>dummy name 2</td></tr>
  </xx:users>
  ..
- <xx:other_data> ...</xx::other_data>
+ <xx:other_data> ...</xx:other_data>
  
  </html>
 
 The httpd.conf file.
+
  PerlSetVar TagPrefix xx
+
  <Files *.html>
+ 
  	SetHandler perl-script
+	
  	PerlHandler MyModule
+
  </Files>
+
 
 MyModule.pm
  use HTML::Myasp;
@@ -196,7 +281,7 @@ This is the HTML file that acts as a template for the page that will be produced
 
 The keys of this hash are the tags we put in the HTML file, the values correspond to a reference to subroutines that, for each key, will generate the content for everything between the initial and ending tag. In our Example:
 
-The TagPrefix Parameter of httpd.conf is xx. 
+The TagPrefix Parameter of httpd.conf is xx. If not set, is assumed the value myasp. If the environment variable TagPrefix exists it's value superseed all other settings.
 
 In the HTML file we put the mark:
 
@@ -251,6 +336,28 @@ The HTML file:
  });
 
 Will render an HTML file with the result of calling $sesion->current_user instead of the string __user__. __date__ will be replaced with the result of calling localtime(time).
+
+=head1 Global Processing
+
+In the web sites, there are sections that must be present in many pages (if not in all the pages). The system provides two functios that acccess asociative arrays (hashs) that will be allways processed as if they were present in the call to send_page. For example, if you want to allways translate the __user__ mark with the current user and supossing there is some $sesion->current_user method that return this value, you cant at the begining of the request in some hadler call:
+
+HTML::Myasp::add_replace_entry(_user__ => $sesion->current_user);
+
+and if you have some sections delimited to replace, you can call:
+
+HTML::Myasp::add_sub_entry("-section" => sub { my ($attr, $body) = @_; my $s = new OV::Section($attr->{id}); $s->home_page_news });
+
+The last call, is an example where there are multiple section marks in the html file, in this case, an electronic newspaper, for example:
+
+<in:section id=stories><p>This is dummy data not used for now. Here must be the top stories.</p></in:section>
+<in:section id=crime><p>This is dummy data not used for now. Here must be the crime section.</p></in:section>
+
+The id attribute is used to pass as parameter to  the call to the funcion that will produce the content.
+
+
+=head1 Debugging
+
+At this time, there is a Package variable DEBUG that you can set to see aditional information in standard error(traditionally the file error_log in apache).
 
 =head1 TODO
 

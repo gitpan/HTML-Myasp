@@ -3,4 +3,4 @@ Makefile.PL
 MANIFEST
 Myasp.pm
 README
-test.pl
+t/1.t
