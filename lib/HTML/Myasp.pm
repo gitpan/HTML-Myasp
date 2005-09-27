@@ -9,7 +9,7 @@ require 5.005_62;
 use strict;
 use warnings;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 use Carp;
 use Data::Dumper;
@@ -172,9 +172,12 @@ sub send_page {
 			print STDERR "*** Begin body between the marks is \n$x->{-param_body}\n"	if $DEBUG;
 			print STDERR "*** End body between the marks\n"								if $DEBUG;
 
-
-		
-			&{$hparam->{$x->{-name}}}($x->{-param_ref}, $x->{-param_body});
+			unless (ref($hparam->{$x->{-name}})) {
+				warn "Tag in template but not a handler subroutine defined: key $x->{-name}, template $file, called from $filename line $line";
+				next;
+			} else {
+				&{$hparam->{$x->{-name}}}($x->{-param_ref}, $x->{-param_body});
+			}
 		}
 	
 	}
